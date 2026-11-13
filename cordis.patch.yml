@@ -1,0 +1,163 @@
+# dsh-dingtalk-autoreply bundle layer: inserts the plugin without configuration, and the agent presets its Sessions run under. The
+# profile supplies the `dingtalk-autoreply` entry's stateDir (see examples/profile.cordis.patch.yml); the plugin
+# refuses to start without stateDir.
+# Adapted from DeepSeek dsh-superagent-prototype (MIT): GitHub/Feishu watchers removed, DingTalk watcher added;
+# worker preset drops the subagent delegation group (this plugin never spawns subagents) and web tools.
+- insert:
+    - id: dingtalk-autoreply
+      name: dsh-dingtalk-autoreply
+    # The agent preset of every colleague Worker Session. It is DSH's `standard` preset with only what a reply worker
+    # needs: shell (foreground commands move to a background job after 5 seconds), read-only files, jobs, skills and
+    # compaction. The host plugin registers the read-only dws tools on the session at creation time. Left out: file
+    # writes, questions to a person, presenting, plan mode, the plugin manager and market, scheduling, goals,
+    # workflows, web fetch, and forked subagents. A preset row has no setting that hides it from the preset picker,
+    # so its name and description say whom it is for.
+    - id: dingtalk-worker-preset
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: dingtalk-worker
+        name: 钉钉自动回复 Worker
+        description: 钉钉自动回复插件的同事 Session 专用，不供手动选择。只含查资料与起草回复所需的工具，不含 subagent。
+        order: 90
+        plugins:
+          - id: persona
+            name: '@deepseek-ai/dsh-persona'
+            config:
+              prefix: You are a DingTalk reply assistant powered by the {{model}} model. You draft replies to colleagues; you never send messages yourself.
+          - id: agent-instructions
+            name: '@deepseek-ai/dsh-agent-instructions'
+            config:
+              maxBytes: 65536
+          - id: time-context
+            name: '@deepseek-ai/dsh-time-context'
+          - id: shell
+            name: cordis:group
+            group: true
+            isolate:
+              shell: true
+            config:
+              - id: bash-sandbox
+                name: '@deepseek-ai/dsh-bash-sandbox'
+                disabled: !!js process.platform === 'win32'
+                config:
+                  timeoutMs: 5000
+                  maxTimeoutMs: 5000
+              - id: pwsh-sandbox
+                name: '@deepseek-ai/dsh-pwsh-sandbox'
+                disabled: !!js process.platform !== 'win32'
+                config:
+                  timeoutMs: 5000
+                  maxTimeoutMs: 5000
+              - id: tool-bash
+                name: '@deepseek-ai/dsh-tool-bash'
+                disabled: !!js process.platform === 'win32'
+              - id: tool-pwsh
+                name: '@deepseek-ai/dsh-tool-pwsh'
+                disabled: !!js process.platform !== 'win32'
+          - id: tool-fs
+            name: '@deepseek-ai/dsh-tool-fs'
+            config:
+              write: false
+              edit: false
+          - id: tool-fs-search
+            name: '@deepseek-ai/dsh-tool-fs-search'
+            config:
+              sampleOverCapGlobResults: false
+          - id: tool-jobs
+            name: '@deepseek-ai/dsh-tool-jobs'
+            config:
+              waitTimeoutMs: 5000
+              maxWaitTimeoutMs: 5000
+          - id: skill-filesystem
+            name: '@deepseek-ai/dsh-skill-filesystem'
+          - id: tool-skill
+            name: '@deepseek-ai/dsh-tool-skill'
+          - id: compaction
+            name: cordis:group
+            group: true
+            isolate:
+              compaction: true
+              toolResultPruner: true
+            config:
+              - id: compaction-basic
+                name: '@deepseek-ai/dsh-compaction-basic'
+              - id: command-compact
+                name: '@deepseek-ai/dsh-command-compact'
+              - id: tool-result-pruner
+                name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+                config:
+                  thresholdChars: 8192
+                  headChars: 4096
+                  tailChars: 1024
+    # The agent preset of the Router Session. Same shell/job waits as the worker, and only what routing needs: no
+    # file writes, no subagents, no web, no todo list, no questions to a person, no presenting, no plan mode,
+    # no plugin manager, no scheduling, no goals, no workflows. No persona: the Router prompt is complete.
+    - id: dingtalk-router-preset
+      name: '@deepseek-ai/dsh-agent-preset'
+      config:
+        id: dingtalk-router
+        name: 钉钉自动回复 Router
+        description: 钉钉自动回复插件的 Router Session 专用，不供手动选择。只含路由所需的工具。
+        order: 91
+        plugins:
+          - id: agent-instructions
+            name: '@deepseek-ai/dsh-agent-instructions'
+            config:
+              maxBytes: 65536
+          - id: time-context
+            name: '@deepseek-ai/dsh-time-context'
+          - id: shell
+            name: cordis:group
+            group: true
+            isolate:
+              shell: true
+            config:
+              - id: bash-sandbox
+                name: '@deepseek-ai/dsh-bash-sandbox'
+                disabled: !!js process.platform === 'win32'
+                config:
+                  timeoutMs: 5000
+                  maxTimeoutMs: 5000
+              - id: pwsh-sandbox
+                name: '@deepseek-ai/dsh-pwsh-sandbox'
+                disabled: !!js process.platform !== 'win32'
+                config:
+                  timeoutMs: 5000
+                  maxTimeoutMs: 5000
+              - id: tool-bash
+                name: '@deepseek-ai/dsh-tool-bash'
+                disabled: !!js process.platform === 'win32'
+              - id: tool-pwsh
+                name: '@deepseek-ai/dsh-tool-pwsh'
+                disabled: !!js process.platform !== 'win32'
+          - id: tool-fs
+            name: '@deepseek-ai/dsh-tool-fs'
+            config:
+              write: false
+              edit: false
+          - id: tool-jobs
+            name: '@deepseek-ai/dsh-tool-jobs'
+            config:
+              waitTimeoutMs: 5000
+              maxWaitTimeoutMs: 5000
+          - id: skill-filesystem
+            name: '@deepseek-ai/dsh-skill-filesystem'
+          - id: tool-skill
+            name: '@deepseek-ai/dsh-tool-skill'
+          - id: compaction
+            name: cordis:group
+            group: true
+            isolate:
+              compaction: true
+              toolResultPruner: true
+            config:
+              - id: compaction-basic
+                name: '@deepseek-ai/dsh-compaction-basic'
+              - id: command-compact
+                name: '@deepseek-ai/dsh-command-compact'
+              - id: tool-result-pruner
+                name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
+                config:
+                  thresholdChars: 8192
+                  headChars: 4096
+                  tailChars: 1024

@@ -1,0 +1,15 @@
+# Example profile configuration ($DSH_HOME/profiles/dingtalk-clone/cordis.patch.yml).
+# Copy to the profile directory and replace <placeholders> before first start.
+- id: webserver
+  config:
+    host: 127.0.0.1
+    port: 3082
+- id: dingtalk-autoreply
+  config:
+    stateDir: <absolute path, for example /home/me/.dsh/state/dingtalk-autoreply>
+    mode: simulate
+    simulateFile: <absolute path to fixtures/simulated-events.ndjson, or empty>
+    selfUserId: <your DingTalk userId; own messages are always dropped>
+    confidenceThreshold: 0.8
+    dailyCap: 50
+    autoSendDirect: false
