@@ -99,7 +99,7 @@ export function triage(event: DingtalkEvent, seen: ReadonlySet<string>, options:
  * Handles (a) this plugin's fixture format (already normalized), (b) dws `--flatten` output (best-effort field
  * aliases), (c) the dws transport envelope `{type, event_type, data, headers}` where `data` is a JSON string.
  * Unknown shapes return undefined instead of throwing; the watcher logs and skips them. */
-export function normalizeDwsLine(line: string): DingtalkEvent | undefined {
+export function normalizeDwsLine(line: string, kindHint?: 'all-direct' | 'all-group'): DingtalkEvent | undefined {
   let parsed: unknown
   try { parsed = JSON.parse(line) } catch { return undefined }
   if (typeof parsed !== 'object' || parsed === null) return undefined
@@ -129,24 +129,33 @@ export function normalizeDwsLine(line: string): DingtalkEvent | undefined {
     for (const key of keys) { const value = data[key]; if (typeof value === 'string' && value) return value }
     return undefined
   }
-  const messageId = pick('messageId', 'msgId', 'openMessageId', 'id')
+  const messageId = pick('messageId', 'message_id', 'msgId', 'openMessageId', 'id')
   const text = pick('text', 'content', 'messageContent')
   if (!messageId || text === undefined) return undefined
-  const conversationId = pick('conversationId', 'openConversationId', 'chatId', 'chat_id') ?? ''
-  const senderId = pick('senderId', 'senderStaffId', 'sender_user_id', 'openDingTalkId') ?? ''
-  const eventType = typeof obj.event_type === 'string' ? obj.event_type : (pick('eventType', 'event_type') ?? 'message')
-  const isGroup = /group/i.test(conversationId) || data.chatType === 'group' || data.conversationType === 'group'
+  const conversationId = pick('conversationId', 'conversation_id', 'openConversationId', 'chatId', 'chat_id') ?? ''
+  // dws --flatten: `sender_open_dingtalk_id` is the sender id and `sender` is the display name.
+  const senderId = pick('senderId', 'senderStaffId', 'sender_open_dingtalk_id', 'sender_user_id', 'openDingTalkId') ?? ''
+  // Classify by feature fields first: dws --flatten emits read_time / recall_time / reaction_name
+  // for those event kinds; then the explicit type field; default to a message.
+  const featureType = data.read_time !== undefined ? 'read' : data.recall_time !== undefined ? 'recall' : data.reaction_name !== undefined ? 'reaction' : undefined
+  const eventType = featureType ?? (typeof obj.event_type === 'string' ? obj.event_type : (pick('eventType', 'event_type') ?? 'message'))
+  // A live listener's kind settles chat type deterministically; the heuristic path stays for
+  // fixtures and HTTP ingest, which carry no hint.
+  const isGroup = kindHint === 'all-group' ? true : kindHint === 'all-direct' ? false : (/group|cid/i.test(conversationId) || data.chatType === 'group' || data.conversationType === 'group')
+  const rawTime = pick('timestamp', 'create_time', 'createAt', 'createdAt')
+  // flatten `event_time` / `timestamp` are integer epoch milliseconds.
+  const numericTime = typeof data.event_time === 'number' ? data.event_time : typeof data.timestamp === 'number' ? data.timestamp : undefined
   return {
     messageId,
     eventType: eventType.includes('recall') ? 'recall' : eventType.includes('read') ? 'read' : eventType.includes('reaction') ? 'reaction' : 'message',
     chatType: isGroup ? 'group' : 'dm',
     chatId: conversationId,
-    chatName: pick('chatName', 'conversationName'),
+    chatName: pick('chatName', 'conversation_name', 'conversationName'),
     senderId,
-    senderName: pick('senderName', 'senderNick', 'nick') ?? senderId,
+    senderName: pick('senderName', 'sender', 'sender_nick', 'senderNick', 'nick') ?? senderId,
     text,
-    atMe: data.atMe === true || !isGroup,
-    timestamp: pick('timestamp', 'createAt', 'createdAt') ?? new Date().toISOString(),
+    atMe: data.atMe === true || data.isAtAll === true || (Array.isArray(data.atUsers) && data.atUsers.length > 0) || !isGroup,
+    timestamp: numericTime !== undefined ? new Date(numericTime).toISOString() : (rawTime && /^\d{13}$/.test(rawTime) ? new Date(Number(rawTime)).toISOString() : (rawTime ?? new Date().toISOString())),
     raw: parsed,
   }
 }

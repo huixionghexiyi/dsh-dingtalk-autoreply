@@ -28,10 +28,17 @@ export class DwsClient {
     return stdout
   }
 
-  /** Read-only: query the operator's calendar. Mock returns a fixed, labeled fixture. */
+  /** Read-only: query the operator's calendar. Mock returns a fixed, labeled fixture.
+   * dws calendar +agenda requires ISO-8601 instants with an explicit UTC offset, so the
+   * YYYY-MM-DD tool input is expanded to that day's bounds in the operator's local zone. */
   async calendarQuery(date: string): Promise<unknown> {
     if (this.mode === 'mock') return { mock: true, date, busy: [{ start: '15:00', end: '16:00', title: '项目周会（Mock 数据）' }], free: '除 15:00–16:00 外空闲' }
-    return JSON.parse(await this.run(['calendar', '+day', '--date', date]))
+    const noon = new Date(`${date}T12:00:00`)
+    const offsetMinutes = -noon.getTimezoneOffset()
+    const sign = offsetMinutes >= 0 ? '+' : '-'
+    const pad = (value: number): string => String(Math.abs(value)).padStart(2, '0')
+    const tz = `${sign}${pad(Math.floor(Math.abs(offsetMinutes) / 60))}:${pad(offsetMinutes % 60)}`
+    return JSON.parse(await this.run(['calendar', '+agenda', '--start', `${date}T00:00:00${tz}`, '--end', `${date}T23:59:59${tz}`]))
   }
 
   /** Read-only: search chat history (used for backfill after a listener outage). */
@@ -52,12 +59,14 @@ export class DwsClient {
     return JSON.parse(await this.run(['doc', 'search', '--query', query]))
   }
 
-  /** Live-only: check login state without logging in (`--readonly` never writes credentials). */
+  /** Live-only: check login state without logging in (`--readonly` never writes credentials).
+   * dws >= v1.0.68 reports `authenticated`; older builds reported `logged_in`. Accept both. */
   async authStatusReadonly(): Promise<{ loggedIn: boolean, detail: string }> {
     try {
       const out = await execFileAsync(this.dwsPath, ['auth', 'status', '--readonly', '--format', 'json'], { timeout: 15_000 })
-      const parsed = JSON.parse(out.stdout) as { logged_in?: boolean, local_state?: string, reason?: string }
-      return { loggedIn: parsed.logged_in === true, detail: parsed.reason ?? parsed.local_state ?? '' }
+      const parsed = JSON.parse(out.stdout) as { logged_in?: boolean, authenticated?: boolean, local_state?: string, reason?: string }
+      const loggedIn = parsed.logged_in === true || parsed.authenticated === true
+      return { loggedIn, detail: parsed.reason ?? parsed.local_state ?? '' }
     } catch (error) {
       return { loggedIn: false, detail: String(error) }
     }

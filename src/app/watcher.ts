@@ -42,9 +42,11 @@ export class DingtalkWatcher {
     return this.startSimulate()
   }
 
-  /** Feed one raw NDJSON line (used by the HTTP ingest endpoint and the simulate feeder). */
-  async feedLine(line: string): Promise<void> {
-    const event = normalizeDwsLine(line)
+  /** Feed one raw NDJSON line (used by the HTTP ingest endpoint and the simulate feeder).
+   * `kindHint` comes from the live listener that received the line and settles chat type
+   * deterministically: `all-direct` only delivers DMs, `all-group` only group chats. */
+  async feedLine(line: string, kindHint?: 'all-direct' | 'all-group'): Promise<void> {
+    const event = normalizeDwsLine(line, kindHint)
     if (!event) { this.host.onLog(`skipping unparsable event line: ${line.slice(0, 120)}`); return }
     await this.host.onEvent(event)
   }
@@ -66,6 +68,9 @@ export class DingtalkWatcher {
 
   private spawnListener(kind: 'all-direct' | 'all-group'): void {
     if (this.stopped) return
+    // No --flatten here: +listen-im does not accept it (that is event consume's flag). Its
+    // NDJSON lines are the compatibility envelope whose `data` member is a JSON string, which
+    // normalizeDwsLine unwraps; the listener's kind still settles chat type.
     const child = spawn(this.host.dwsPath, ['event', '+listen-im', '--kind', kind, '-f', 'ndjson'], { stdio: ['ignore', 'pipe', 'pipe'] })
     this.children.push(child)
     let buffer = ''
@@ -73,7 +78,7 @@ export class DingtalkWatcher {
       buffer += chunk.toString('utf8')
       const lines = buffer.split('\n')
       buffer = lines.pop() ?? ''
-      for (const line of lines) if (line.trim()) void this.feedLine(line)
+      for (const line of lines) if (line.trim()) void this.feedLine(line, kind)
     })
     child.stderr.on('data', (chunk: Buffer) => { this.host.onLog(`dws ${kind}: ${chunk.toString('utf8').trim().slice(0, 300)}`) })
     child.on('exit', (code) => {

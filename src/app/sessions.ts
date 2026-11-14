@@ -134,19 +134,21 @@ export class ColleagueSessions {
     this.decorated.add(agent.id)
     const isRouter = agent.id === ROUTER_SESSION_ID
     const dws = this.host.dws
-    // Role prompt (system-prompt section, no interpolation).
-    agent.ctx.systemPrompt.section({
+    // Role prompt (system-prompt section, no interpolation). The registration targets the agent's
+    // session ctx, which outlives plugin reloads; its disposer is therefore owned by this plugin's
+    // fiber so an unmount removes it instead of leaking into (and colliding on) the next mount.
+    this.ctx.effect(() => agent.ctx.systemPrompt.section({
       name: 'dingtalk-autoreply', order: 9999, interpolate: false,
       text: () => `${isRouter ? ROUTER_PROMPT : WORKER_PROMPT}`,
-    })
+    }))
     // Read-only dws tools. Write operations are NOT registered on the agent: sending goes through the host
-    // approval/send service only.
+    // approval/send service only. Same ownership rule as the prompt section above.
     const register = (name: string, description: string, schema: z.ZodType, execute: (args: never) => Promise<unknown>): void => {
-      agent.ctx.tools.register({
+      this.ctx.effect(() => agent.ctx.tools.register({
         name, description, parameters: z.toJSONSchema(schema),
         output: { schema: { type: 'object', additionalProperties: true }, render: (_args, value) => [{ type: 'text' as const, text: JSON.stringify(value) }] },
         execute: (args, execution) => execute(schema.parse(args) as never),
-      })
+      }))
     }
     if (!isRouter) {
       register('dws_calendar_query', '查询本人的日历（只读）。', z.object({ date: z.string().describe('YYYY-MM-DD') }),
